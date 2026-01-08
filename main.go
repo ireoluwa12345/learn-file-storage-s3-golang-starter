@@ -22,6 +22,8 @@ type apiConfig struct {
 	s3Region         string
 	s3CfDistribution string
 	port             string
+	infoLog          *log.Logger
+	errorLog         *log.Logger
 }
 
 type thumbnail struct {
@@ -32,6 +34,8 @@ type thumbnail struct {
 var videoThumbnails = map[uuid.UUID]thumbnail{}
 
 func main() {
+	infoLog := log.New(os.Stdout, "INFO\t", log.Ldate|log.Ltime)
+	errorLog := log.New(os.Stderr, "ERROR\t", log.Ldate|log.Ltime)
 	godotenv.Load(".env")
 
 	pathToDB := os.Getenv("DB_PATH")
@@ -94,6 +98,8 @@ func main() {
 		s3Region:         s3Region,
 		s3CfDistribution: s3CfDistribution,
 		port:             port,
+		infoLog:          infoLog,
+		errorLog:         errorLog,
 	}
 
 	err = cfg.ensureAssetsDir()

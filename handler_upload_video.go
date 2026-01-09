@@ -1,18 +1,23 @@
 package main
 
 import (
+	"context"
+	"crypto/rand"
+	"encoding/base64"
+	"fmt"
 	"io"
 	"mime"
 	"net/http"
 	"os"
 
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
 	"github.com/google/uuid"
 )
 
 func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request) {
 	const maxVideoSize = 1 << 30 // 1GB
-	http.MaxBytesReader(w, r.Body, maxVideoSize)
+	r.Body = http.MaxBytesReader(w, r.Body, maxVideoSize)
 
 	videoID, err := uuid.Parse(r.PathValue("videoID"))
 
@@ -62,7 +67,7 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	}
 
 	if fileType != "video/mp4" {
-		respondWithError(w, http.StatusBadRequest, "Invalid file extension", err)
+		respondWithError(w, http.StatusBadRequest, "Invalid mime type", err)
 		return
 	}
 
@@ -79,5 +84,36 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, http.StatusInternalServerError, "Unable to copy file", err)
 		return
 	}
+
+	_, err = file.Seek(0, io.SeekStart)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Unable to seek file", err)
+		return
+	}
+
+	fileName := make([]byte, 32)
+	_, err = rand.Read(fileName)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Unable to generate random file name", err)
+		return
+	}
+	fileNameStr := base64.URLEncoding.EncodeToString(fileName)
+
+	_, err = cfg.s3Client.PutObject(context.Background(), &s3.PutObjectInput{Bucket: &cfg.s3Bucket, Key: &fileNameStr, Body: file, ContentType: &fileType})
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Unable to upload file", err)
+		return
+	}
+
+	videoURL := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", cfg.s3Bucket, cfg.s3Region, fileNameStr)
+	video.VideoURL = &videoURL
+
+	err = cfg.db.UpdateVideo(video)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Unable to update video", err)
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, video)
 
 }

@@ -1,9 +1,14 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
 	"github.com/google/uuid"
@@ -44,8 +49,17 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 
 	defer file.Close()
 
-	fileType := handler.Header.Get("Content-Type")
+	fileExt := handler.Header.Get("Content-Type")
+	// Parse the extension from Content-Type header (e.g., "image/png" -> "png")
+	parts := strings.Split(fileExt, "/")
+	if len(parts) > 1 {
+		fileExt = parts[1]
+	}
 
+	if fileExt != "png" && fileExt != "jpg" && fileExt != "jpeg" {
+		respondWithError(w, http.StatusBadRequest, "Invalid file extension", err)
+		return
+	}
 	image, err := io.ReadAll(file)
 
 	if err != nil {
@@ -64,18 +78,22 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	thumbnail := thumbnail{
-		data:      image,
-		mediaType: fileType,
+	fileName := make([]byte, 32)
+	_, err = rand.Read(fileName)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Unable to generate random file name", err)
+		return
 	}
+	fileNameStr := base64.URLEncoding.EncodeToString(fileName)
 
-	videoThumbnails[videoID] = thumbnail
+	thumbnailPath := filepath.Join(cfg.assetsRoot, fmt.Sprintf("%s.%s", fileNameStr, fileExt))
 
-	thumbnailURL := fmt.Sprintf("http://localhost:%s/api/thumbnails/%s", cfg.port, videoID)
+	os.WriteFile(thumbnailPath, image, 0777)
+
+	thumbnailURL := fmt.Sprintf("http://localhost:%s/assets/%s.%s", cfg.port, fileNameStr, fileExt)
 
 	video.ThumbnailURL = &thumbnailURL
 
-	cfg.infoLog.Printf("Uploading thumbnail for video %s with thumbnail url %s", video.ID, *video.ThumbnailURL)
 	err = cfg.db.UpdateVideo(video)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Unable to update video", err)

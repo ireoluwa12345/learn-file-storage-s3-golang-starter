@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"crypto/rand"
-	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"mime"
@@ -12,6 +12,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
+	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/videos"
 	"github.com/google/uuid"
 )
 
@@ -85,7 +86,23 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	_, err = file.Seek(0, io.SeekStart)
+	fastStartFileStr, err := videos.ProcessVideoForFastStart(file.Name())
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Unable to process video for fast start", err)
+		return
+	}
+	defer os.Remove(fastStartFileStr)
+
+	fastStartFile, err := os.Open(fastStartFileStr)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Unable to open fast start file", err)
+		return
+	}
+	defer fastStartFile.Close()
+
+	videoPrefix, err := videos.GetVideoAspectRatio(fastStartFileStr)
+
+	_, err = fastStartFile.Seek(0, io.SeekStart)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Unable to seek file", err)
 		return
@@ -97,9 +114,9 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, http.StatusInternalServerError, "Unable to generate random file name", err)
 		return
 	}
-	fileNameStr := base64.URLEncoding.EncodeToString(fileName)
+	fileNameStr := fmt.Sprintf("%s/%s.mp4", videoPrefix, hex.EncodeToString(fileName))
 
-	_, err = cfg.s3Client.PutObject(context.Background(), &s3.PutObjectInput{Bucket: &cfg.s3Bucket, Key: &fileNameStr, Body: file, ContentType: &fileType})
+	_, err = cfg.s3Client.PutObject(context.Background(), &s3.PutObjectInput{Bucket: &cfg.s3Bucket, Key: &fileNameStr, Body: fastStartFile, ContentType: &fileType})
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Unable to upload file", err)
 		return

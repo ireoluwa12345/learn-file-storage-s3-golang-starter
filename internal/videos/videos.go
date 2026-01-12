@@ -3,7 +3,6 @@ package videos
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"os/exec"
 )
 
@@ -50,8 +49,6 @@ func GetVideoAspectRatio(filePath string) (string, error) {
 
 func ProcessVideoForFastStart(filePath string) (string, error) {
 	newPath := "/tmp/processing-tubely-upload.mp4"
-	fmt.Printf("%v", filePath)
-	fmt.Printf("%v", newPath)
 	cmd := exec.Command("ffmpeg", "-i", filePath, "-c", "copy", "-movflags", "faststart", "-y", newPath)
 	err := cmd.Run()
 
